@@ -9,16 +9,13 @@ export interface MapMarker {
   images: string[]; 
 }
 
-// Хранилище маркеров
 let markersStorage: MapMarker[] = [];
 
 export const markerStore = {
-  // Делаем копию массива, чтобы не удалить случайно из исходного
   getAll: (): MapMarker[] => {
     return [...markersStorage];
   },
 
-  //Добавить новый маркер
   add: (coordinate: any, title?: string, description?: string): MapMarker => {
     const newMarker: MapMarker = {
       id: Date.now().toString(),
@@ -33,19 +30,16 @@ export const markerStore = {
     return newMarker;
   },
 
-  // Найти маркер по его ID
   findById: (id: string): MapMarker | undefined => {
     return markersStorage.find((marker) => marker.id === id);
   },
 
-  // Удалить маркер по ID
   delete: (id: string): boolean => {
     const initialLength = markersStorage.length;
     markersStorage = markersStorage.filter((marker) => marker.id !== id);
     return markersStorage.length !== initialLength;
   },
 
-  //Обновить существующий маркер
   update: (id: string, updates: Partial<MapMarker>): MapMarker | null => {
     const index = markersStorage.findIndex((marker) => marker.id === id);
     if (index !== -1) {
@@ -56,12 +50,9 @@ export const markerStore = {
     return null;
   },
 
-
-  // Добавить изображение к маркеру
   addImage: (markerId: string, imageUri: string): boolean => {
     const marker = markersStorage.find(m => m.id === markerId);
     if (marker) {
-      // Убеждаемся что массив images существует
       if (!marker.images) {
         marker.images = [];
       }
@@ -73,7 +64,6 @@ export const markerStore = {
     return false;
   },
 
-  // Удалить изображение из маркера
   removeImage: (markerId: string, imageUri: string): boolean => {
     const marker = markersStorage.find(m => m.id === markerId);
     if (marker && marker.images) {
@@ -88,21 +78,9 @@ export const markerStore = {
     return false;
   },
 
-  // Получить все изображения маркера
   getImages: (markerId: string): string[] => {
     const marker = markersStorage.find(m => m.id === markerId);
-    return marker?.images || []; // Возвращаем пустой массив если изображений нет
+    return marker?.images || []; 
   },
 
-  // Очистить все изображения маркера (опционально)
-  clearImages: (markerId: string): boolean => {
-    const marker = markersStorage.find(m => m.id === markerId);
-    if (marker) {
-      const hadImages = marker.images && marker.images.length > 0;
-      marker.images = [];
-      console.log("Все изображения удалены из маркера:", markerId);
-      return hadImages;
-    }
-    return false;
-  }
 };

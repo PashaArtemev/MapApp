@@ -17,14 +17,6 @@ export default function RootLayout() {
           title: "Детали маркера",
         }}
       />
-      // app/_layout.tsx
-      <Stack.Screen
-        name="marker-list"
-        options={{
-          headerShown: true,
-          title: "Список маркеров",
-        }}
-      />
     </Stack>
   );
 }

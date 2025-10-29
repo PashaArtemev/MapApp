@@ -1,12 +1,12 @@
 import React from "react";
 import {
-    Alert,
-    FlatList,
-    Image,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Alert,
+  FlatList,
+  Image,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { markerStore } from "../types";
 
@@ -18,7 +18,6 @@ interface ImageListProps {
 export default function ImageList({ markerId, onAddImage }: ImageListProps) {
   const [images, setImages] = React.useState<string[]>([]);
 
-  // Загружаем изображения при монтировании и при изменении markerId
   React.useEffect(() => {
     loadImages();
   }, [markerId]);
@@ -40,7 +39,7 @@ export default function ImageList({ markerId, onAddImage }: ImageListProps) {
           onPress: () => {
             const success = markerStore.removeImage(markerId, imageUri);
             if (success) {
-              loadImages(); // Перезагружаем список
+              loadImages(); 
               Alert.alert("Успех", "Изображение удалено");
             } else {
               Alert.alert("Ошибка", "Не удалось удалить изображение");

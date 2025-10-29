@@ -55,7 +55,7 @@ export default function MarkerDetails() {
         const success = markerStore.addImage(marker.id, imageUri);
 
         if (success) {
-          setRefreshKey((prev) => prev + 1) // Костыль чтобы не использовать props;
+          setRefreshKey((prev) => prev + 1) 
           Alert.alert("Успех", "Изображение добавлено");
         } else {
           Alert.alert("Ошибка", "Не удалось добавить изображение");
