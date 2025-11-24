@@ -1,24 +1,22 @@
-import { useFocusEffect, useRouter } from "expo-router";
-import React, { useState } from "react";
+import { useRouter } from "expo-router";
+import React from "react";
 import { StyleSheet } from "react-native";
 import MapView, { Marker } from "react-native-maps";
-import { markerStore } from "../types";
+import { useMarkers } from "../types";
 
 export default function Map() {
-  const [markers, setMarkers] = useState(markerStore.getAll());
+  const { markers, addMarker } = useMarkers();
   const router = useRouter();
 
-  useFocusEffect(
-    React.useCallback(() => {
-      setMarkers(markerStore.getAll());
-    }, [])
-  );
-
-  const handleLongPress = (event: any) => {
+  const handleLongPress = async (event: any) => {
     const { coordinate } = event.nativeEvent;
-
-    markerStore.add(coordinate);
-    setMarkers(markerStore.getAll());
+    
+    try {
+      await addMarker(coordinate);
+      console.log("Маркер успешно добавлен");
+    } catch (error) {
+      console.error("Ошибка при добавлении маркера:", error);
+    }
   };
 
   const handleMarkerPress = (marker: any) => {

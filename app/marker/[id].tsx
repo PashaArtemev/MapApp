@@ -1,6 +1,6 @@
 import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
@@ -13,18 +13,43 @@ import {
   View,
 } from "react-native";
 import ImageList from "../../components/ImageList";
-import { markerStore } from "../../types";
+import { useMarkers } from "../../types";
 
 export default function MarkerDetails() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
+  const { markers, updateMarker, deleteMarker, addImage, refreshMarkers } =
+    useMarkers();
 
-  const marker = markerStore.findById(id as string);
-
+  const [marker, setMarker] = useState<any>(null);
   const [isEditing, setIsEditing] = useState(false);
-  const [title, setTitle] = useState(marker?.title || "");
-  const [description, setDescription] = useState(marker?.description || "");
-  const [refreshKey, setRefreshKey] = useState(0);
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Загрузка маркера при изменении id или markers
+  useEffect(() => {
+    loadMarker();
+  }, [id, markers]);
+
+  const loadMarker = () => {
+    try {
+      setIsLoading(true);
+      const foundMarker = markers.find((m: any) => m.id === id);
+      if (foundMarker) {
+        setMarker(foundMarker);
+        setTitle(foundMarker.title);
+        setDescription(foundMarker.description || "");
+      } else {
+        setMarker(null);
+      }
+    } catch (error) {
+      console.error("Error loading marker:", error);
+      Alert.alert("Ошибка", "Не удалось загрузить данные маркера");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleAddImage = async () => {
     if (!marker) {
@@ -52,12 +77,14 @@ export default function MarkerDetails() {
 
       if (!result.canceled && result.assets[0].uri) {
         const imageUri = result.assets[0].uri;
-        const success = markerStore.addImage(marker.id, imageUri);
 
-        if (success) {
-          setRefreshKey((prev) => prev + 1) 
+        try {
+          await addImage(marker.id, imageUri);
+          // Обновляем список маркеров после добавления изображения
+          await refreshMarkers();
           Alert.alert("Успех", "Изображение добавлено");
-        } else {
+        } catch (error) {
+          console.error("Error adding image:", error);
           Alert.alert("Ошибка", "Не удалось добавить изображение");
         }
       }
@@ -66,6 +93,14 @@ export default function MarkerDetails() {
       Alert.alert("Ошибка", "Не удалось выбрать изображение");
     }
   };
+
+  if (isLoading) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.loadingText}>Загрузка...</Text>
+      </View>
+    );
+  }
 
   if (!marker) {
     return (
@@ -79,28 +114,37 @@ export default function MarkerDetails() {
     );
   }
 
-  const handleSave = () => {
+  // app/marker/[id].tsx - добавьте отладочные console.log
+  const handleSave = async () => {
     if (title.trim() === "") {
       Alert.alert("Ошибка", "Название не может быть пустым");
       return;
     }
 
-    markerStore.update(marker.id, {
-      title: title.trim(),
-      description: description.trim(),
-    });
+    console.log("Saving marker:", { id: marker.id, title, description });
 
-    setIsEditing(false);
-    Alert.alert("Успех", "Изменения сохранены");
+    try {
+      const result = await updateMarker(marker.id, {
+        title: title.trim(),
+        description: description.trim(),
+      });
+
+      console.log("Update result:", result);
+
+      setIsEditing(false);
+      Alert.alert("Успех", "Изменения сохранены");
+    } catch (error) {
+      console.error("Error updating marker:", error);
+      Alert.alert("Ошибка", "Не удалось сохранить изменения");
+    }
   };
-
   const handleCancel = () => {
     setTitle(marker.title);
-    setDescription(marker.description);
+    setDescription(marker.description || "");
     setIsEditing(false);
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     Alert.alert(
       "Удалить маркер",
       `Вы уверены, что хотите удалить "${marker.title}"?`,
@@ -109,9 +153,14 @@ export default function MarkerDetails() {
         {
           text: "Удалить",
           style: "destructive",
-          onPress: () => {
-            markerStore.delete(marker.id);
-            router.back();
+          onPress: async () => {
+            try {
+              await deleteMarker(marker.id);
+              router.back();
+            } catch (error) {
+              console.error("Error deleting marker:", error);
+              Alert.alert("Ошибка", "Не удалось удалить маркер");
+            }
           },
         },
       ]
@@ -123,7 +172,10 @@ export default function MarkerDetails() {
       style={styles.container}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
-      <ScrollView style={styles.scrollView}>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+      >
         <View style={styles.header}>
           {isEditing ? (
             <TextInput
@@ -131,6 +183,7 @@ export default function MarkerDetails() {
               value={title}
               onChangeText={setTitle}
               placeholder="Введите название"
+              placeholderTextColor="#999"
               autoFocus
             />
           ) : (
@@ -159,8 +212,9 @@ export default function MarkerDetails() {
               value={description}
               onChangeText={setDescription}
               placeholder="Введите описание"
+              placeholderTextColor="#999"
               multiline
-              numberOfLines={4}
+              textAlignVertical="top"
             />
           ) : (
             <Text style={styles.description}>
@@ -221,6 +275,9 @@ const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
   },
+  scrollContent: {
+    flexGrow: 1,
+  },
   header: {
     padding: 20,
     backgroundColor: "#f8f9fa",
@@ -231,21 +288,22 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: "bold",
     color: "#333",
+    marginBottom: 5,
   },
   titleInput: {
     fontSize: 24,
     fontWeight: "bold",
     color: "#333",
     backgroundColor: "#fff",
-    padding: 10,
+    padding: 12,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: "#ddd",
+    marginBottom: 5,
   },
   subtitle: {
     fontSize: 14,
     color: "#666",
-    marginTop: 5,
   },
   section: {
     padding: 20,
@@ -256,7 +314,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "600",
     color: "#333",
-    marginBottom: 10,
+    marginBottom: 15,
   },
   coordinateContainer: {
     backgroundColor: "#f8f9fa",
@@ -266,6 +324,7 @@ const styles = StyleSheet.create({
   coordinateText: {
     fontSize: 14,
     color: "#495057",
+    marginBottom: 5,
   },
   description: {
     fontSize: 16,
@@ -281,18 +340,18 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: "#ddd",
-    minHeight: 100,
+    minHeight: 120,
     textAlignVertical: "top",
   },
   actionsContainer: {
     padding: 20,
-    gap: 10,
+    gap: 12,
   },
   button: {
-    backgroundColor: "#007AFF",
-    padding: 15,
+    padding: 16,
     borderRadius: 10,
     alignItems: "center",
+    justifyContent: "center",
   },
   editButton: {
     backgroundColor: "#34C759",
@@ -316,5 +375,12 @@ const styles = StyleSheet.create({
     textAlign: "center",
     margin: 20,
     color: "#FF3B30",
+    fontWeight: "600",
+  },
+  loadingText: {
+    fontSize: 16,
+    textAlign: "center",
+    margin: 20,
+    color: "#666",
   },
 });

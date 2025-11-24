@@ -8,7 +8,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { markerStore } from "../types";
+import { useMarkers } from "../types";
 
 interface ImageListProps {
   markerId: string;
@@ -16,16 +16,8 @@ interface ImageListProps {
 }
 
 export default function ImageList({ markerId, onAddImage }: ImageListProps) {
-  const [images, setImages] = React.useState<string[]>([]);
-
-  React.useEffect(() => {
-    loadImages();
-  }, [markerId]);
-
-  const loadImages = () => {
-    const markerImages = markerStore.getImages(markerId);
-    setImages(markerImages);
-  };
+  const { getImages, removeImage, refreshMarkers } = useMarkers();
+  const images = getImages(markerId);
 
   const handleDeleteImage = (imageUri: string) => {
     Alert.alert(
@@ -36,12 +28,12 @@ export default function ImageList({ markerId, onAddImage }: ImageListProps) {
         {
           text: "Удалить",
           style: "destructive",
-          onPress: () => {
-            const success = markerStore.removeImage(markerId, imageUri);
-            if (success) {
-              loadImages(); 
+          onPress: async () => {
+            try {
+              await removeImage(markerId, imageUri);
+              await refreshMarkers();
               Alert.alert("Успех", "Изображение удалено");
-            } else {
+            } catch (error) {
               Alert.alert("Ошибка", "Не удалось удалить изображение");
             }
           }

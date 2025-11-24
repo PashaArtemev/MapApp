@@ -1,22 +1,26 @@
-import { Stack } from "expo-router";
+// app/_layout.tsx
+import { Stack } from 'expo-router';
+import { MarkerProvider } from '../MarkerProvider';
 
 export default function RootLayout() {
   return (
-    <Stack>
-      <Stack.Screen
-        name="index"
-        options={{
-          headerShown: true,
-          title: "Карта",
-        }}
-      />
-      <Stack.Screen
-        name="marker/[id]"
-        options={{
-          headerShown: true,
-          title: "Детали маркера",
-        }}
-      />
-    </Stack>
+    <MarkerProvider>
+      <Stack>
+        <Stack.Screen 
+          name="index" 
+          options={{ 
+            title: 'Карта',
+            headerShown: false 
+          }} 
+        />
+        <Stack.Screen 
+          name="marker/[id]" 
+          options={{ 
+            title: 'Детали маркера',
+            presentation: 'modal'
+          }} 
+        />
+      </Stack>
+    </MarkerProvider>
   );
 }
