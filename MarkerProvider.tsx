@@ -1,108 +1,206 @@
-import React, { useEffect, useState } from "react";
-import { Text, View } from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import { AppState, AppStateStatus, Text, View } from "react-native";
 import { db, initDatabase } from "./database";
 import { MapMarker, MarkerContext } from "./types";
+
+// Импортируем сервисы
+import LocationService from "./services/location";
+import NotificationService from "./services/notification";
+import ProximityService from "./services/proximity";
 
 export const MarkerProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
   const [markers, setMarkers] = useState<MapMarker[]>([]);
+  const [userLocation, setUserLocation] = useState<any>(null);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [isTrackingLocation, setIsTrackingLocation] = useState(false);
+  
+  // Используем useRef для хранения экземпляров сервисов
+  const notificationServiceRef = useRef<NotificationService | null>(null);
+  const locationServiceRef = useRef<LocationService | null>(null);
+  const proximityServiceRef = useRef<ProximityService | null>(null);
 
-  // Инициализация базы данных при запуске
+  // Инициализация приложения
   useEffect(() => {
-    initializeDatabase();
+    initializeApp();
+    
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    
+    return () => {
+      stopLocationTracking();
+      subscription.remove();
+    };
   }, []);
 
-  const initializeDatabase = async () => {
+  const initializeApp = async () => {
     try {
+      console.log("🚀 Initializing app...");
+      
+      // Инициализируем сервисы
+      notificationServiceRef.current = new NotificationService();
+      locationServiceRef.current = new LocationService(handleLocationUpdate);
+      proximityServiceRef.current = new ProximityService(notificationServiceRef.current);
+      
+      // Инициализируем базу данных
       await initDatabase();
+      
+      // Загружаем маркеры
       await refreshMarkers();
+      
+      // Запрашиваем разрешения
+      await requestPermissions();
+      
       setIsInitialized(true);
-      console.log("Database and markers loaded successfully");
+      console.log("✅ App initialized successfully");
     } catch (error) {
-      console.error("Failed to initialize database:", error);
+      console.error("❌ Failed to initialize app:", error);
     }
   };
 
-  // MarkerProvider.tsx - улучшенная функция refreshMarkers
+  const requestPermissions = async () => {
+    try {
+      console.log("🔐 Requesting permissions...");
+      
+      if (locationServiceRef.current && notificationServiceRef.current) {
+        const [locationGranted, notificationsGranted] = await Promise.all([
+          locationServiceRef.current.requestPermissions(),
+          notificationServiceRef.current.requestPermissions(),
+        ]);
+
+        console.log(`📍 Location permission: ${locationGranted ? 'granted' : 'denied'}`);
+        console.log(`🔔 Notification permission: ${notificationsGranted ? 'granted' : 'denied'}`);
+
+        return locationGranted && notificationsGranted;
+      }
+      return false;
+    } catch (error) {
+      console.error('❌ Error requesting permissions:', error);
+      return false;
+    }
+  };
+
+  // Обработчик обновления местоположения
+  const handleLocationUpdate = (location: any) => {
+    console.log("📍 Location updated:", location.coords);
+    setUserLocation(location);
+    
+    // Проверяем близость при каждом обновлении местоположения
+    if (proximityServiceRef.current) {
+      proximityServiceRef.current.checkProximityToMarkers(location, markers);
+    }
+  };
+
+  // Функция обновления списка маркеров
   const refreshMarkers = async (): Promise<void> => {
     try {
-      console.log("Refreshing markers from DB...");
+      console.log("🔄 Refreshing markers...");
+      
+      // Сначала получаем маркеры без изображений
+      const markersResult = await db.getAllAsync(`
+        SELECT 
+          id,
+          latitude,
+          longitude,
+          title,
+          description,
+          created_at
+        FROM markers
+        ORDER BY created_at DESC
+      `);
 
-      const result = await db.getAllAsync(`
-      SELECT 
-        m.id,
-        m.latitude,
-        m.longitude,
-        m.title,
-        m.description,
-        m.created_at,
-        GROUP_CONCAT(mi.uri) as images
-      FROM markers m
-      LEFT JOIN marker_images mi ON m.id = mi.marker_id
-      GROUP BY m.id
-      ORDER BY m.created_at DESC
-    `);
-
-      console.log("Raw data from DB:", result);
-
-      const markersData: MapMarker[] = result.map((row: any) => {
-        const marker = {
-          id: row.id.toString(),
-          coordinate: {
-            latitude: row.latitude,
-            longitude: row.longitude,
-          },
-          title: row.title || "Без названия",
-          description: row.description || "",
-          images: row.images ? row.images.split(",") : [],
-          created_at: row.created_at,
-        };
-
-        console.log("Processed marker:", marker);
-        return marker;
-      });
+      // Затем для каждого маркера получаем изображения
+      const markersData: MapMarker[] = await Promise.all(
+        markersResult.map(async (row: any) => {
+          const imagesResult = await db.getAllAsync(
+            `SELECT uri FROM marker_images WHERE marker_id = ?`,
+            [row.id]
+          );
+          
+          const images = imagesResult.map((img: any) => img.uri);
+          
+          // Пытаемся получить значения для новых колонок, если они есть
+          let notificationEnabled = true;
+          let notificationRadius = 100;
+          
+          try {
+            const extendedInfo = await db.getFirstAsync(
+              `SELECT notification_enabled, notification_radius FROM markers WHERE id = ?`,
+              [row.id]
+            );
+            
+            if (extendedInfo) {
+              const info = extendedInfo as any;
+              notificationEnabled = info.notification_enabled !== 0;
+              notificationRadius = info.notification_radius || 100;
+            }
+          } catch (e) {
+            console.log("ℹ️ Using default notification settings for marker:", row.id);
+          }
+          
+          return {
+            id: row.id.toString(),
+            coordinate: {
+              latitude: row.latitude,
+              longitude: row.longitude,
+            },
+            title: row.title || "Без названия",
+            description: row.description || "",
+            images: images,
+            notificationEnabled: notificationEnabled,
+            notificationRadius: notificationRadius,
+            created_at: row.created_at,
+          };
+        })
+      );
 
       setMarkers(markersData);
-      console.log("Total markers loaded:", markersData.length);
+      console.log(`✅ ${markersData.length} markers loaded`);
     } catch (error) {
-      console.error("Error refreshing markers:", error);
-      throw error;
+      console.error("❌ Error refreshing markers:", error);
+      setMarkers([]);
     }
   };
 
-  // MarkerProvider.tsx - исправленная функция addMarker
+  // Добавление маркера
   const addMarker = async (
     coordinate: any,
     title?: string,
     description?: string
   ): Promise<MapMarker> => {
     try {
+      console.log("➕ Adding marker...");
+      
       const markerTitle = title || `Маркер ${markers.length + 1}`;
       const markerDescription = description || "";
 
-      console.log("Adding marker to DB:", {
-        coordinate,
-        markerTitle,
-        markerDescription,
-      });
-
-      const result = await db.runAsync(
-        "INSERT INTO markers (latitude, longitude, title, description) VALUES (?, ?, ?, ?)",
-        [
-          coordinate.latitude,
-          coordinate.longitude,
-          markerTitle,
-          markerDescription,
-        ]
-      );
+      let result;
+      try {
+        // Пытаемся использовать запрос с новыми колонками
+        result = await db.runAsync(
+          "INSERT INTO markers (latitude, longitude, title, description, notification_enabled, notification_radius) VALUES (?, ?, ?, ?, 1, 100)",
+          [
+            coordinate.latitude,
+            coordinate.longitude,
+            markerTitle,
+            markerDescription,
+          ]
+        );
+      } catch (insertError) {
+        // Если не получилось, используем старый запрос
+        console.log("⚠️ Using fallback insert query");
+        result = await db.runAsync(
+          "INSERT INTO markers (latitude, longitude, title, description) VALUES (?, ?, ?, ?)",
+          [
+            coordinate.latitude,
+            coordinate.longitude,
+            markerTitle,
+            markerDescription,
+          ]
+        );
+      }
 
       const lastInsertRowId = (result as any).lastInsertRowId;
-
-      if (!lastInsertRowId) {
-        throw new Error("Failed to get last insert ID");
-      }
 
       const newMarker: MapMarker = {
         id: lastInsertRowId.toString(),
@@ -110,172 +208,280 @@ export const MarkerProvider: React.FC<{ children: React.ReactNode }> = ({
         title: markerTitle,
         description: markerDescription,
         images: [],
+        notificationEnabled: true,
+        notificationRadius: 100,
       };
 
       await refreshMarkers();
-      console.log("Маркер добавлен в БД:", newMarker);
+      console.log("✅ Marker added:", newMarker);
+      
       return newMarker;
     } catch (error) {
-      console.error("Error adding marker to database:", error);
+      console.error("❌ Error adding marker:", error);
       throw error;
     }
   };
 
-  // MarkerProvider.tsx - исправленная функция updateMarker
+  // Обновление маркера
   const updateMarker = async (
     id: string,
     updates: Partial<MapMarker>
   ): Promise<MapMarker | null> => {
     try {
-      // Проверяем наличие обязательных полей
       if (!updates.title) {
         throw new Error("Title is required for update");
       }
 
-      console.log("Updating marker in DB:", { id, updates });
-
-      await db.runAsync(
-        "UPDATE markers SET title = ?, description = ? WHERE id = ?",
-        [updates.title, updates.description || "", parseInt(id)]
-      );
-
-      await refreshMarkers();
-
-      // Получаем обновленный маркер из БД
-      const updatedMarkers = await db.getAllAsync(
-        `
-      SELECT * FROM markers WHERE id = ?
-    `,
-        [parseInt(id)]
-      );
-
-      if (updatedMarkers.length > 0) {
-        const row = updatedMarkers[0] as any;
-        const updatedMarker: MapMarker = {
-          id: row.id.toString(),
-          coordinate: {
-            latitude: row.latitude,
-            longitude: row.longitude,
-          },
-          title: row.title,
-          description: row.description || "",
-          images: [], // Будет заполнено при refreshMarkers
-        };
-
-        console.log("Маркер обновлен в БД:", updatedMarker);
-        return updatedMarker;
+      console.log("✏️ Updating marker:", id);
+      
+      const title = updates.title;
+      const description = updates.description || "";
+      
+      try {
+        // Пытаемся использовать полный запрос с новыми колонками
+        const notificationEnabled = updates.notificationEnabled ? 1 : 0;
+        const notificationRadius = updates.notificationRadius || 100;
+        
+        await db.runAsync(
+          "UPDATE markers SET title = ?, description = ?, notification_enabled = ?, notification_radius = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+          [
+            title,
+            description,
+            notificationEnabled,
+            notificationRadius,
+            parseInt(id)
+          ]
+        );
+      } catch (updateError) {
+        // Если не получилось, используем старый запрос
+        console.log("⚠️ Using fallback update query");
+        await db.runAsync(
+          "UPDATE markers SET title = ?, description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+          [
+            title,
+            description,
+            parseInt(id)
+          ]
+        );
       }
 
-      return null;
+      await refreshMarkers();
+      
+      const updatedMarker = markers.find(m => m.id === id);
+      console.log("✅ Marker updated");
+      return updatedMarker || null;
     } catch (error) {
-      console.error("Error updating marker in database:", error);
+      console.error("❌ Error updating marker:", error);
       throw error;
     }
   };
 
+  // Удаление маркера
   const deleteMarker = async (id: string): Promise<boolean> => {
     try {
+      console.log("🗑️ Deleting marker:", id);
+      
       await db.runAsync("DELETE FROM markers WHERE id = ?", [parseInt(id)]);
-
       await refreshMarkers();
-      console.log("Маркер удален из БД:", id);
+      console.log("✅ Marker deleted:", id);
       return true;
     } catch (error) {
-      console.error("Error deleting marker from database:", error);
+      console.error("❌ Error deleting marker:", error);
       throw error;
     }
   };
 
-  const addImage = async (
-    markerId: string,
-    imageUri: string
-  ): Promise<boolean> => {
+  // Добавление изображения
+  const addImage = async (markerId: string, imageUri: string): Promise<boolean> => {
     try {
+      console.log("🖼️ Adding image to marker:", markerId);
+      
       await db.runAsync(
         "INSERT INTO marker_images (marker_id, uri) VALUES (?, ?)",
         [parseInt(markerId), imageUri]
       );
-
       await refreshMarkers();
-      console.log("Изображение добавлено к маркеру:", markerId, imageUri);
+      console.log("✅ Image added to marker:", markerId);
       return true;
     } catch (error) {
-      console.error("Error adding image to database:", error);
+      console.error("❌ Error adding image:", error);
       throw error;
     }
   };
 
-  const removeImage = async (
-    markerId: string,
-    imageUri: string
-  ): Promise<boolean> => {
+  // Удаление изображения
+  const removeImage = async (markerId: string, imageUri: string): Promise<boolean> => {
     try {
+      console.log("🗑️ Removing image from marker:", markerId);
+      
       await db.runAsync(
         "DELETE FROM marker_images WHERE marker_id = ? AND uri = ?",
         [parseInt(markerId), imageUri]
       );
-
       await refreshMarkers();
-      console.log("Изображение удалено из маркера:", markerId, imageUri);
+      console.log("✅ Image removed from marker:", markerId);
       return true;
     } catch (error) {
-      console.error("Error removing image from database:", error);
+      console.error("❌ Error removing image:", error);
       throw error;
     }
   };
 
+  // Получение изображений маркера
   const getImages = (markerId: string): string[] => {
-    const marker = markers.find((m) => m.id === markerId);
+    const marker = markers.find(m => m.id === markerId);
     return marker?.images || [];
   };
 
+  // Получение маркера по ID
   const getMarkerById = async (id: string): Promise<MapMarker | null> => {
     try {
-      const result = await db.getFirstAsync(
+      console.log("🔍 Getting marker by ID:", id);
+      
+      // Получаем данные маркера
+      const markerResult = await db.getFirstAsync(
         `
         SELECT 
-          m.id,
-          m.latitude,
-          m.longitude,
-          m.title,
-          m.description,
-          m.created_at,
-          GROUP_CONCAT(mi.uri) as images
-        FROM markers m
-        LEFT JOIN marker_images mi ON m.id = mi.marker_id
-        WHERE m.id = ?
-        GROUP BY m.id
+          id,
+          latitude,
+          longitude,
+          title,
+          description,
+          created_at
+        FROM markers 
+        WHERE id = ?
       `,
         [parseInt(id)]
       );
 
-      // Явно типизируем результат
-      const row = result as any;
-
-      if (row) {
-        const marker: MapMarker = {
-          id: row.id.toString(),
-          coordinate: {
-            latitude: row.latitude,
-            longitude: row.longitude,
-          },
-          title: row.title,
-          description: row.description || "",
-          images: row.images ? row.images.split(",") : [],
-          created_at: row.created_at,
-        };
-        return marker;
+      if (!markerResult) return null;
+      
+      const row = markerResult as any;
+      
+      // Получаем изображения для этого маркера
+      const imagesResult = await db.getAllAsync(
+        `SELECT uri FROM marker_images WHERE marker_id = ?`,
+        [parseInt(id)]
+      );
+      
+      const images = imagesResult.map((img: any) => img.uri);
+      
+      // Пытаемся получить значения для новых колонок
+      let notificationEnabled = true;
+      let notificationRadius = 100;
+      
+      try {
+        const extendedInfo = await db.getFirstAsync(
+          `SELECT notification_enabled, notification_radius FROM markers WHERE id = ?`,
+          [parseInt(id)]
+        );
+        
+        if (extendedInfo) {
+          const info = extendedInfo as any;
+          notificationEnabled = info.notification_enabled !== 0;
+          notificationRadius = info.notification_radius || 100;
+        }
+      } catch (e) {
+        console.log("ℹ️ Using default notification settings");
       }
-
-      return null;
+      
+      const marker: MapMarker = {
+        id: row.id.toString(),
+        coordinate: {
+          latitude: row.latitude,
+          longitude: row.longitude,
+        },
+        title: row.title,
+        description: row.description || "",
+        images: images,
+        notificationEnabled: notificationEnabled,
+        notificationRadius: notificationRadius,
+        created_at: row.created_at,
+      };
+      
+      return marker;
     } catch (error) {
-      console.error("Error getting marker by ID:", error);
-      throw error;
+      console.error("❌ Error getting marker by ID:", error);
+      return null;
+    }
+  };
+
+  // Трекинг местоположения
+  const startLocationTracking = async () => {
+    try {
+      if (!locationServiceRef.current || isTrackingLocation) return;
+      
+      console.log("📍 Starting location tracking");
+      
+      // Получаем текущее местоположение
+      const currentLocation = await locationServiceRef.current.getCurrentLocation();
+      if (currentLocation) {
+        setUserLocation(currentLocation);
+        
+        // Немедленно проверяем близость
+        if (proximityServiceRef.current) {
+          proximityServiceRef.current.checkProximityToMarkers(currentLocation, markers);
+        }
+      }
+      
+      // Запускаем отслеживание
+      await locationServiceRef.current.startTracking();
+      
+      // Запускаем периодическую проверку близости
+      if (proximityServiceRef.current) {
+        proximityServiceRef.current.startPeriodicChecking(
+          () => userLocation,
+          () => markers,
+          30000
+        );
+      }
+      
+      setIsTrackingLocation(true);
+      console.log("✅ Location tracking started");
+      
+    } catch (error) {
+      console.error("❌ Error starting location tracking:", error);
+      setIsTrackingLocation(false);
+    }
+  };
+
+  const stopLocationTracking = () => {
+    console.log("📍 Stopping location tracking");
+    
+    if (locationServiceRef.current) {
+      locationServiceRef.current.stopTracking();
+    }
+    
+    if (proximityServiceRef.current) {
+      proximityServiceRef.current.stopPeriodicChecking();
+    }
+    
+    setIsTrackingLocation(false);
+  };
+
+  // Проверка близости ко всем маркерам
+  const checkProximityToMarkers = async (location: any) => {
+    if (!proximityServiceRef.current) return;
+    
+    console.log("📏 Checking proximity to markers");
+    proximityServiceRef.current.checkProximityToMarkers(location, markers);
+  };
+
+  // Обработка изменения состояния приложения
+  const handleAppStateChange = (nextAppState: AppStateStatus) => {
+    console.log("📱 App state changed:", nextAppState);
+    
+    if (nextAppState === 'active') {
+      startLocationTracking();
+    } else if (nextAppState === 'background') {
+      stopLocationTracking();
     }
   };
 
   const value = {
     markers,
+    userLocation,
+    isTrackingLocation,
     addMarker,
     updateMarker,
     deleteMarker,
@@ -284,18 +490,22 @@ export const MarkerProvider: React.FC<{ children: React.ReactNode }> = ({
     getImages,
     refreshMarkers,
     getMarkerById,
+    startLocationTracking,
+    stopLocationTracking,
+    checkProximityToMarkers,
   };
 
-  // Показываем загрузку пока БД не инициализирована
   if (!isInitialized) {
     return (
       <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-        <Text>Загрузка базы данных...</Text>
+        <Text>Инициализация приложения...</Text>
       </View>
     );
   }
 
   return (
-    <MarkerContext.Provider value={value}>{children}</MarkerContext.Provider>
+    <MarkerContext.Provider value={value}>
+      {children}
+    </MarkerContext.Provider>
   );
 };

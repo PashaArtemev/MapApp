@@ -7,6 +7,7 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -25,9 +26,11 @@ export default function MarkerDetails() {
   const [isEditing, setIsEditing] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [notificationEnabled, setNotificationEnabled] = useState(true);
+  const [notificationRadius, setNotificationRadius] = useState(100);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Загрузка маркера при изменении id или markers
+  // Загрузка маркера
   useEffect(() => {
     loadMarker();
   }, [id, markers]);
@@ -40,6 +43,8 @@ export default function MarkerDetails() {
         setMarker(foundMarker);
         setTitle(foundMarker.title);
         setDescription(foundMarker.description || "");
+        setNotificationEnabled(foundMarker.notificationEnabled ?? true);
+        setNotificationRadius(foundMarker.notificationRadius ?? 100);
       } else {
         setMarker(null);
       }
@@ -80,7 +85,6 @@ export default function MarkerDetails() {
 
         try {
           await addImage(marker.id, imageUri);
-          // Обновляем список маркеров после добавления изображения
           await refreshMarkers();
           Alert.alert("Успех", "Изображение добавлено");
         } catch (error) {
@@ -94,42 +98,19 @@ export default function MarkerDetails() {
     }
   };
 
-  if (isLoading) {
-    return (
-      <View style={styles.container}>
-        <Text style={styles.loadingText}>Загрузка...</Text>
-      </View>
-    );
-  }
-
-  if (!marker) {
-    return (
-      <View style={styles.container}>
-        <Text style={styles.errorText}>Маркер не найден</Text>
-        <Text style={styles.subtitle}>ID: {id}</Text>
-        <TouchableOpacity style={styles.button} onPress={() => router.back()}>
-          <Text style={styles.buttonText}>Назад к карте</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  // app/marker/[id].tsx - добавьте отладочные console.log
   const handleSave = async () => {
     if (title.trim() === "") {
       Alert.alert("Ошибка", "Название не может быть пустым");
       return;
     }
 
-    console.log("Saving marker:", { id: marker.id, title, description });
-
     try {
-      const result = await updateMarker(marker.id, {
+      await updateMarker(marker.id, {
         title: title.trim(),
         description: description.trim(),
+        notificationEnabled,
+        notificationRadius,
       });
-
-      console.log("Update result:", result);
 
       setIsEditing(false);
       Alert.alert("Успех", "Изменения сохранены");
@@ -138,9 +119,12 @@ export default function MarkerDetails() {
       Alert.alert("Ошибка", "Не удалось сохранить изменения");
     }
   };
+
   const handleCancel = () => {
     setTitle(marker.title);
     setDescription(marker.description || "");
+    setNotificationEnabled(marker.notificationEnabled ?? true);
+    setNotificationRadius(marker.notificationRadius ?? 100);
     setIsEditing(false);
   };
 
@@ -166,6 +150,32 @@ export default function MarkerDetails() {
       ]
     );
   };
+
+  const handleRadiusChange = (value: number) => {
+    if (value >= 10 && value <= 500) {
+      setNotificationRadius(value);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.loadingText}>Загрузка...</Text>
+      </View>
+    );
+  }
+
+  if (!marker) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.errorText}>Маркер не найден</Text>
+        <Text style={styles.subtitle}>ID: {id}</Text>
+        <TouchableOpacity style={styles.button} onPress={() => router.back()}>
+          <Text style={styles.buttonText}>Назад к карте</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <KeyboardAvoidingView
@@ -220,6 +230,115 @@ export default function MarkerDetails() {
             <Text style={styles.description}>
               {marker.description || "Описание отсутствует"}
             </Text>
+          )}
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Уведомления</Text>
+          
+          {isEditing ? (
+            <View style={styles.notificationEditContainer}>
+              <View style={styles.switchRow}>
+                <Text style={styles.switchLabel}>Уведомлять о приближении</Text>
+                <Switch
+                  value={notificationEnabled}
+                  onValueChange={setNotificationEnabled}
+                  trackColor={{ false: "#767577", true: "#34C759" }}
+                />
+              </View>
+              
+              {notificationEnabled && (
+                <View style={styles.radiusContainer}>
+                  <Text style={styles.radiusLabel}>
+                    Радиус уведомления: {notificationRadius} м
+                  </Text>
+                  
+                  <View style={styles.radiusButtons}>
+                    <TouchableOpacity 
+                      style={[styles.radiusButton, notificationRadius === 50 && styles.radiusButtonActive]}
+                      onPress={() => handleRadiusChange(50)}
+                    >
+                      <Text style={[styles.radiusButtonText, notificationRadius === 50 && styles.radiusButtonTextActive]}>
+                        50 м
+                      </Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity 
+                      style={[styles.radiusButton, notificationRadius === 100 && styles.radiusButtonActive]}
+                      onPress={() => handleRadiusChange(100)}
+                    >
+                      <Text style={[styles.radiusButtonText, notificationRadius === 100 && styles.radiusButtonTextActive]}>
+                        100 м
+                      </Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity 
+                      style={[styles.radiusButton, notificationRadius === 200 && styles.radiusButtonActive]}
+                      onPress={() => handleRadiusChange(200)}
+                    >
+                      <Text style={[styles.radiusButtonText, notificationRadius === 200 && styles.radiusButtonTextActive]}>
+                        200 м
+                      </Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity 
+                      style={[styles.radiusButton, notificationRadius === 500 && styles.radiusButtonActive]}
+                      onPress={() => handleRadiusChange(500)}
+                    >
+                      <Text style={[styles.radiusButtonText, notificationRadius === 500 && styles.radiusButtonTextActive]}>
+                        500 м
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                  
+                  <View style={styles.customRadiusContainer}>
+                    <Text style={styles.customRadiusLabel}>Свой радиус:</Text>
+                    <View style={styles.customRadiusInputs}>
+                      <TouchableOpacity 
+                        style={styles.radiusChangeButton}
+                        onPress={() => handleRadiusChange(Math.max(10, notificationRadius - 10))}
+                      >
+                        <Text style={styles.radiusChangeButtonText}>-</Text>
+                      </TouchableOpacity>
+                      
+                      <TextInput
+                        style={styles.radiusInput}
+                        value={notificationRadius.toString()}
+                        onChangeText={(text) => {
+                          const num = parseInt(text);
+                          if (!isNaN(num) && num >= 10 && num <= 500) {
+                            setNotificationRadius(num);
+                          }
+                        }}
+                        keyboardType="numeric"
+                        maxLength={3}
+                      />
+                      
+                      <TouchableOpacity 
+                        style={styles.radiusChangeButton}
+                        onPress={() => handleRadiusChange(Math.min(500, notificationRadius + 10))}
+                      >
+                        <Text style={styles.radiusChangeButtonText}>+</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <Text style={styles.radiusHint}>От 10 до 500 метров</Text>
+                  </View>
+                </View>
+              )}
+            </View>
+          ) : (
+            <View style={styles.notificationViewContainer}>
+              <Text style={styles.notificationText}>
+                Уведомления: <Text style={marker.notificationEnabled ? styles.enabledText : styles.disabledText}>
+                  {marker.notificationEnabled ? "Включены" : "Выключены"}
+                </Text>
+              </Text>
+              {marker.notificationEnabled && (
+                <Text style={styles.notificationText}>
+                  Радиус: <Text style={styles.radiusValue}>{marker.notificationRadius} метров</Text>
+                </Text>
+              )}
+            </View>
           )}
         </View>
 
@@ -342,6 +461,123 @@ const styles = StyleSheet.create({
     borderColor: "#ddd",
     minHeight: 120,
     textAlignVertical: "top",
+  },
+  notificationEditContainer: {
+    backgroundColor: "#f8f9fa",
+    padding: 15,
+    borderRadius: 8,
+  },
+  switchRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 15,
+  },
+  switchLabel: {
+    fontSize: 16,
+    color: "#333",
+    fontWeight: '500',
+  },
+  radiusContainer: {
+    marginTop: 10,
+  },
+  radiusLabel: {
+    fontSize: 16,
+    color: "#333",
+    fontWeight: '500',
+    marginBottom: 15,
+  },
+  radiusButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+  },
+  radiusButton: {
+    flex: 1,
+    marginHorizontal: 5,
+    paddingVertical: 10,
+    paddingHorizontal: 5,
+    backgroundColor: '#e9ecef',
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  radiusButtonActive: {
+    backgroundColor: '#34C759',
+  },
+  radiusButtonText: {
+    fontSize: 14,
+    color: '#495057',
+    fontWeight: '500',
+  },
+  radiusButtonTextActive: {
+    color: '#fff',
+  },
+  customRadiusContainer: {
+    marginTop: 10,
+  },
+  customRadiusLabel: {
+    fontSize: 14,
+    color: "#666",
+    marginBottom: 10,
+  },
+  customRadiusInputs: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  radiusChangeButton: {
+    width: 40,
+    height: 40,
+    backgroundColor: '#007AFF',
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  radiusChangeButtonText: {
+    fontSize: 20,
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  radiusInput: {
+    width: 80,
+    height: 40,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    textAlign: 'center',
+    fontSize: 16,
+    marginHorizontal: 15,
+    color: '#333',
+  },
+  radiusHint: {
+    fontSize: 12,
+    color: '#999',
+    textAlign: 'center',
+    marginTop: 5,
+  },
+  notificationViewContainer: {
+    backgroundColor: "#f8f9fa",
+    padding: 15,
+    borderRadius: 8,
+  },
+  notificationText: {
+    fontSize: 16,
+    color: "#333",
+    marginBottom: 8,
+  },
+  enabledText: {
+    color: "#34C759",
+    fontWeight: '600',
+  },
+  disabledText: {
+    color: "#FF3B30",
+    fontWeight: '600',
+  },
+  radiusValue: {
+    color: "#007AFF",
+    fontWeight: '600',
   },
   actionsContainer: {
     padding: 20,
